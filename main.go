@@ -1,122 +1,222 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// SourceURLs structure to parse YAML
 type SourceURLs struct {
-	Subdomains  []string `yaml:"subdomains"`
-	Directories []string `yaml:"directories"`
+	Subdomains []string `yaml:"subdomains"`
 }
 
-// Function to parse the sources YAML file
-func parseSourcesFile(filepath string) (SourceURLs, error) {
+// function to parse the sources.yaml file
+func parseSourcesYAML(filepath string) (map[string]bool, error) {
 	var urls SourceURLs
+	subdomainSourceURLs := make(map[string]bool)
 
-	// Read the sources file
 	fileContent, err := os.ReadFile(filepath)
 	if err != nil {
-		return urls, err
+		return subdomainSourceURLs, err
 	}
-
-	// Unmarshall the coontent
 	err = yaml.Unmarshal(fileContent, &urls)
 	if err != nil {
-		return urls, err
+		return subdomainSourceURLs, err
 	}
 
-	return urls, nil
+	for _, url := range urls.Subdomains {
+		if _, exists := subdomainSourceURLs[url]; !exists {
+			subdomainSourceURLs[url] = true
+		}
+	}
+
+	return subdomainSourceURLs, err
 }
 
-// Function to get the status code of urls
-func getSourceData(url string) (int, string, error) {
-	response, err := http.Get(url)
-	if err != nil {
-		return 0, "", err
+func validateSourceURLs(urls map[string]bool) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	invalidSourceURLs := []string{}
+
+	for url := range urls {
+		req, err := http.NewRequest("HEAD", url, nil)
+		if err != nil {
+			fmt.Printf("Error creating request for URL %s: %v\n", url, err)
+			invalidSourceURLs = append(invalidSourceURLs, url)
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("Error fetching URL %s: %v\n", url, err)
+			invalidSourceURLs = append(invalidSourceURLs, url)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("Invalid status code %d for URL %s\n", resp.StatusCode, url)
+			invalidSourceURLs = append(invalidSourceURLs, url)
+		}
+		resp.Body.Close()
 	}
-	defer response.Body.Close()
-	bodyBytes, err := io.ReadAll(response.Body)
 
-	if err != nil {
-		return response.StatusCode, "", err
+	for _, url := range invalidSourceURLs {
+		delete(urls, url)
 	}
-
-	body := string(bodyBytes)
-
-	return response.StatusCode, body, nil
 }
 
-func processSourceURLs(category string, urls SourceURLs) {
-	switch category {
-	case "subdomains":
-		fmt.Println("Checking Subdomains:")
-		for _, url := range urls.Subdomains {
-			statusCode, body, err := getSourceData(url)
-			if err != nil {
-				fmt.Printf("Error fetching URL %s: %v\n", url, err)
-			} else {
-				body = strings.ToLower(body)
-				fmt.Printf("URL: %s, Status Code: %d, Response Body: %s\n", url, statusCode, body)
+func processResponseBody(body io.Reader) <-chan string {
+	output := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(body)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" {
+				output <- strings.ToLower(line)
 			}
 		}
-	case "directories":
-		fmt.Println("\nChecking Directories:")
-		for _, url := range urls.Directories {
-			statusCode, body, err := getSourceData(url)
-			if err != nil {
-				fmt.Printf("Error fetching URL %s: %v\n", url, err)
-			} else {
-				fmt.Printf("URL: %s, Status Code: %d, Response Body: %s\n", url, statusCode, body)
+		close(output)
+	}()
+	return output
+}
+
+func storeToBadgerDB(db *badger.DB, lines <-chan string, url string) error {
+	const batchSize = 1000
+	var count int
+	txn := db.NewTransaction(true)
+	defer txn.Discard()
+
+	for line := range lines {
+		if _, err := txn.Get([]byte(line)); err == badger.ErrKeyNotFound {
+			if err := txn.Set([]byte(line), []byte(url)); err != nil {
+				return err
 			}
+			count++
 		}
-	case "all":
-		processSourceURLs("subdomains", urls)
-		processSourceURLs("directories", urls)
-	default:
-		fmt.Println("Invalid category. Please choose 'subdomains', 'directories', or 'all'.")
+
+		if count >= batchSize {
+			if err := txn.Commit(); err != nil {
+				return fmt.Errorf("error committing transaction: %w", err)
+			}
+			txn = db.NewTransaction(true)
+			count = 0
+		}
 	}
+
+	if count > 0 {
+		if err := txn.Commit(); err != nil {
+			return fmt.Errorf("error committing final transaction: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func fetchDatafromSourceURLs(urls map[string]bool, db *badger.DB) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	for url := range urls {
+		resp, err := client.Get(url)
+		if err != nil {
+			fmt.Printf("Error fetching URL %s: %v\n", url, err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			lines := processResponseBody(resp.Body)
+			if err := storeToBadgerDB(db, lines, url); err != nil {
+				fmt.Printf("Error storing content from %s to BadgerDB: %v\n", url, err)
+			} else {
+				fmt.Printf("Processed and stored content from %s\n", url)
+			}
+		} else {
+			fmt.Printf("URL %s returned status code %d\n", url, resp.StatusCode)
+			resp.Body.Close()
+		}
+	}
+}
+
+func fetchDataFromBadgerDB(db *badger.DB, writer io.Writer) error {
+	return db.View(func(txn *badger.Txn) error {
+		iter := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer iter.Close()
+
+		for iter.Rewind(); iter.Valid(); iter.Next() {
+			item := iter.Item()
+			key := item.Key()
+			err := item.Value(func(val []byte) error {
+				_, writeErr := fmt.Fprintf(writer, "%s\n", key)
+				return writeErr
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func main() {
-	// Static path to the YAML file
 	filePath := "sources.yaml"
+	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
+	if err != nil {
+		fmt.Printf("Error opening BadgerDB: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
-	var category string
+	var outputPath string
 
-	// Create a new root command
 	var rootCmd = &cobra.Command{
 		Use:   "fuzzgen",
 		Short: "Fuzzgen processes URLs from a YAML file and fetches their HTTP status",
+	}
+
+	var subdomainsCmd = &cobra.Command{
+		Use:   "subdomains",
+		Short: "Process and fetch status for subdomains",
 		Run: func(cmd *cobra.Command, args []string) {
-			if category == "" {
-				fmt.Println("Error: The category flag (-c) is required.")
-				cmd.Usage()
-				os.Exit(1)
-			}
-			// Parse the YAML file
-			urls, err := parseSourcesFile(filePath)
+			subdomainSourceURLs, err := parseSourcesYAML(filePath)
 			if err != nil {
 				fmt.Printf("Error parsing YAML file: %v\n", err)
 				os.Exit(1)
 			}
 
-			// Process the chosen category
-			processSourceURLs(category, urls)
+			fmt.Printf("Checking %d subdomains sources...\n", len(subdomainSourceURLs))
+			validateSourceURLs(subdomainSourceURLs)
+			fmt.Println("Valid subdomain sources:")
+			for url := range subdomainSourceURLs {
+				fmt.Println(url)
+			}
+
+			fetchDatafromSourceURLs(subdomainSourceURLs, db)
+
+			var writer io.Writer = os.Stdout
+			if outputPath != "" {
+				file, err := os.Create(outputPath)
+				if err != nil {
+					fmt.Printf("Error creating output file: %v\n", err)
+					os.Exit(1)
+				}
+				defer file.Close()
+				writer = file
+			}
+
+			if err := fetchDataFromBadgerDB(db, writer); err != nil {
+				fmt.Printf("Error fetching data from BadgerDB: %v\n", err)
+			}
 		},
 	}
 
-	// Add a flag for the category
-	rootCmd.Flags().StringVarP(&category, "category", "c", "", "Category to process: subdomains, directories, or all")
+	subdomainsCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to output file for storing results")
+	rootCmd.AddCommand(subdomainsCmd)
 
-	// Execute the command
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

@@ -45,6 +45,8 @@ func validateSourceURLs(urls map[string]bool) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	invalidSourceURLs := []string{}
 
+	userAgent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
+
 	for url := range urls {
 		req, err := http.NewRequest("HEAD", url, nil)
 		if err != nil {
@@ -52,6 +54,8 @@ func validateSourceURLs(urls map[string]bool) {
 			invalidSourceURLs = append(invalidSourceURLs, url)
 			continue
 		}
+		req.Header.Set("User-Agent", userAgent)
+
 		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Printf("Error fetching URL %s: %v\n", url, err)
@@ -76,6 +80,10 @@ func processResponseBody(body io.Reader) <-chan string {
 		scanner := bufio.NewScanner(body)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
+			line = strings.TrimFunc(line, func(r rune) bool {
+				return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'))
+			})
+
 			if line != "" {
 				output <- strings.ToLower(line)
 			}
@@ -119,9 +127,17 @@ func storeToBadgerDB(db *badger.DB, lines <-chan string, url string) error {
 
 func fetchDatafromSourceURLs(urls map[string]bool, db *badger.DB) {
 	client := &http.Client{Timeout: 30 * time.Second}
+	userAgent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
 
 	for url := range urls {
-		resp, err := client.Get(url)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			fmt.Printf("Error creating request for URL %s: %v\n", url, err)
+			continue
+		}
+		req.Header.Set("User-Agent", userAgent) // Set the User-Agent header
+
+		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Printf("Error fetching URL %s: %v\n", url, err)
 			continue

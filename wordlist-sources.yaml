@@ -16,3 +16,15 @@ subdomains:
   - https://raw.githubusercontent.com/trickest/wordlists/main/inventory/subdomains.txt
   - https://wordlists-cdn.assetnote.io/data/manual/2m-subdomains.txt
   - https://wordlists-cdn.assetnote.io/data/manual/best-dns-wordlist.txt
+
+common:
+  - https://raw.githubusercontent.com/six2dez/OneListForAll/refs/heads/main/dict/dotfiles_short.txt
+  - https://raw.githubusercontent.com/xmendez/wfuzz/refs/heads/master/wordlist/general/admin-panels.txt
+  - https://raw.githubusercontent.com/aels/subdirectories-discover/refs/heads/main/dsplusleakypaths.txt
+  - https://raw.githubusercontent.com/ayoubfathi/leaky-paths/refs/heads/main/leaky-paths.txt
+  - https://raw.githubusercontent.com/xmendez/wfuzz/refs/heads/master/wordlist/general/common.txt
+  - https://raw.githubusercontent.com/xmendez/wfuzz/refs/heads/master/wordlist/general/megabeast.txt
+  - https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/Web-Content/directory-list-2.3-medium.txt
+  - https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/Web-Content/raft-medium-words.txt
+  - https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/Web-Content/raft-large-directories.txt
+  - https://raw.githubusercontent.com/six2dez/OneListForAll/refs/heads/main/dict/dir_short.txt

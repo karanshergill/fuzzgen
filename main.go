@@ -179,7 +179,7 @@ func fetchDataFromBadgerDB(db *badger.DB, writer io.Writer) error {
 }
 
 func main() {
-	filePath := "sources.yaml"
+	filePath := "wordlist-sources.yaml"
 	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
 	if err != nil {
 		fmt.Printf("Error opening BadgerDB: %v\n", err)
@@ -191,19 +191,21 @@ func main() {
 
 	var rootCmd = &cobra.Command{
 		Use:   "fuzzgen",
-		Short: "Fuzzgen processes URLs from a YAML file and fetches their HTTP status",
+		Short: "Wordlist Generator",
 	}
 
 	var subdomainsCmd = &cobra.Command{
-		Use:   "subdomains",
-		Short: "Process and fetch status for subdomains",
+		Use:   "fuzzgen",
+		Short: "Wordlist Generator",
 		Run: func(cmd *cobra.Command, args []string) {
+			// parse the sources file
 			subdomainSourceURLs, err := parseSourcesYAML(filePath)
 			if err != nil {
 				fmt.Printf("Error parsing YAML file: %v\n", err)
 				os.Exit(1)
 			}
 
+			// validate the urls in the sources file
 			fmt.Printf("Checking %d subdomains sources...\n", len(subdomainSourceURLs))
 			validateSourceURLs(subdomainSourceURLs)
 			fmt.Println("Valid subdomain sources:")
@@ -211,8 +213,10 @@ func main() {
 				fmt.Println(url)
 			}
 
+			// fetch data from the sources and store in database
 			fetchDatafromSourceURLs(subdomainSourceURLs, db)
 
+			// write output to file
 			var writer io.Writer = os.Stdout
 			if outputPath != "" {
 				file, err := os.Create(outputPath)
@@ -230,7 +234,7 @@ func main() {
 		},
 	}
 
-	subdomainsCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to output file for storing results")
+	rootCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to output file for storing results")
 	rootCmd.AddCommand(subdomainsCmd)
 
 	if err := rootCmd.Execute(); err != nil {

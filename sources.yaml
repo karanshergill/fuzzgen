@@ -1,4 +1,4 @@
-general:
+generic:
   - https://raw.githubusercontent.com/six2dez/OneListForAll/refs/heads/main/dict/dotfiles_short.txt
   - https://raw.githubusercontent.com/xmendez/wfuzz/refs/heads/master/wordlist/general/admin-panels.txt
   - https://raw.githubusercontent.com/aels/subdirectories-discover/refs/heads/main/dsplusleakypaths.txt

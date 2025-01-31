@@ -10,6 +10,7 @@ generic:
   - https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/Web-Content/raft-medium-words.txt
   - https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/Web-Content/raft-large-directories.txt
   - https://raw.githubusercontent.com/six2dez/OneListForAll/refs/heads/main/dict/dir_short.txt
+  - https://raw.githubusercontent.com/xajkep/wordlists/refs/heads/master/discovery/top-10k-web-directories_from_10M_urlteam_links.txt
 
 subdomains:
   - https://gist.githubusercontent.com/jhaddix/86a06c5dc309d08580a018c66354a056/raw/96f4e51d96b2203f19f6381c8c545b278eaa0837/all.txt

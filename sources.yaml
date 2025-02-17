@@ -31,3 +31,4 @@ subdomains:
   - https://wordlists-cdn.assetnote.io/data/manual/2m-subdomains.txt
   - https://wordlists-cdn.assetnote.io/data/manual/best-dns-wordlist.txt
   - https://raw.githubusercontent.com/carlospolop/Auto_Wordlists/refs/heads/main/wordlists/bf_directories.txt
+  - https://raw.githubusercontent.com/th3cyb3rhub/subscout/refs/heads/main/subdomains-wordlist.txt
